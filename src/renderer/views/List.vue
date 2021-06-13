@@ -11,7 +11,10 @@
           span(:class="$style.listsLabel") {{defaultList.name}}
         li(:class="[$style.listsItem, loveList.id == listId ? $style.active : null]" :tips="loveList.name" @click="handleListToggle(loveList.id)")
           span(:class="$style.listsLabel") {{loveList.name}}
-        li.user-list(:class="[$style.listsItem, item.id == listId ? $style.active : null, listsData.rightClickItemIndex == index ? $style.clicked : null]" @contextmenu="handleListsItemRigthClick($event, index)" :tips="item.name" v-for="(item, index) in userList" :key="item.id")
+        li.user-list(
+          :class="[$style.listsItem, item.id == listId ? $style.active : null, listsData.rightClickItemIndex == index ? $style.clicked : null, fetchingListStatus[item.id] ? $style.fetching : null]"
+          @contextmenu="handleListsItemRigthClick($event, index)"
+          :tips="item.name" v-for="(item, index) in userList" :key="item.id")
           span(:class="$style.listsLabel" @click="handleListToggle(item.id, index + 2)") {{item.name}}
           input.key-bind(:class="$style.listsInput" @contextmenu.stop type="text" @keyup.enter="handleListsSave(index, $event)" @blur="handleListsSave(index, $event)" :value="item.name" :placeholder="item.name")
         transition(enter-active-class="animated-fast slideInLeft" leave-active-class="animated-fast fadeOut" @after-leave="handleListsNewAfterLeave")
@@ -34,7 +37,7 @@
           table
             tbody(@contextmenu.capture="handleContextMenu" ref="dom_tbody")
               tr(v-for='(item, index) in list' :key='item.songmid' :id="'mid_' + item.songmid"  @contextmenu="handleListItemRigthClick($event, index)"
-                @click="handleDoubleClick($event, index)" :class="[isPlayList && playIndex === index ? $style.active : '', assertApiSupport(item.source) ? null : $style.disabled]")
+                @click="handleDoubleClick($event, index)" :class="[isPlayList && playInfo.playIndex === index ? $style.active : '', assertApiSupport(item.source) ? null : $style.disabled]")
                 td.nobreak.center(style="width: 5%; padding-left: 3px; padding-right: 3px;" :class="$style.noSelect" @click.stop) {{index + 1}}
                 td.break
                   span.select {{item.name}}
@@ -51,7 +54,7 @@
                 td(style="width: 9%;")
                   span(:class="[$style.time, $style.noSelect]") {{item.interval || '--/--'}}
                 td(style="width: 15%; padding-left: 0; padding-right: 0;")
-                  material-list-buttons(:index="index" @btn-click="handleListBtnClick")
+                  material-list-buttons(:index="index" @btn-click="handleListBtnClick" :download-btn="assertApiSupport(item.source)")
                   //- button.btn-info(type='button' v-if="item._types['128k'] || item._types['192k'] || item._types['320k'] || item._types.flac" @click.stop='openDownloadModal(index)') 下载
                   //- button.btn-secondary(type='button' v-if="item._types['128k'] || item._types['192k'] || item._types['320k']" @click.stop='testPlay(index)') 试听
                   //- button.btn-secondary(type='button' @click.stop='handleRemove(index)') 删除
@@ -66,6 +69,7 @@
     material-menu(:menus="listsItemMenu" :location="listsData.menuLocation" item-name="name" :isShow="listsData.isShowItemMenu" @menu-click="handleListsItemMenuClick")
     material-menu(:menus="listItemMenu" :location="listMenu.menuLocation" item-name="name" :isShow="listMenu.isShowItemMenu" @menu-click="handleListItemMenuClick")
     material-search-list(:list="list" @action="handleMusicSearchAction" :visible="isVisibleMusicSearch")
+    material-list-sort-modal(:show="isShowListSortModal" :music-info="musicInfo" :selected-num="selectdListDetailData.length" @close="isShowListSortModal = false" @confirm="handleSortMusicInfo")
 </template>
 
 <script>
@@ -88,6 +92,7 @@ export default {
       delayShow: false,
       isShowListAdd: false,
       isShowListAddMultiple: false,
+      isShowListSortModal: false,
       delayTimeout: null,
       isToggleList: true,
       focusTarget: 'listDetail',
@@ -100,6 +105,7 @@ export default {
         isShowItemMenu: false,
         itemMenuControl: {
           rename: true,
+          sync: false,
           moveup: true,
           movedown: true,
           remove: true,
@@ -116,10 +122,13 @@ export default {
         isShowItemMenu: false,
         itemMenuControl: {
           play: true,
+          playLater: true,
           copyName: true,
           addTo: true,
           moveTo: true,
+          sort: true,
           download: true,
+          search: true,
           remove: true,
           sourceDetail: true,
         },
@@ -131,17 +140,18 @@ export default {
       isMove: false,
       isMoveMultiple: false,
       isVisibleMusicSearch: false,
+      fetchingListStatus: {},
     }
   },
   computed: {
     ...mapGetters(['userInfo', 'setting']),
     ...mapGetters('list', ['isInitedList', 'defaultList', 'loveList', 'userList']),
-    ...mapGetters('player', {
-      playerListId: 'listId',
-      playIndex: 'playIndex',
-    }),
+    ...mapGetters('player', ['playInfo']),
+    playerListId() {
+      return this.playInfo.listId
+    },
     isPlayList() {
-      return this.playerListId == this.listId
+      return this.playInfo.listId == this.listId
     },
     list() {
       return this.listData.list
@@ -181,6 +191,11 @@ export default {
           disabled: !this.listsData.itemMenuControl.rename,
         },
         {
+          name: this.$t('view.list.lists_sync'),
+          action: 'sync',
+          disabled: !this.listsData.itemMenuControl.sync,
+        },
+        {
           name: this.$t('view.list.lists_moveup'),
           action: 'moveup',
           disabled: !this.listsData.itemMenuControl.moveup,
@@ -210,14 +225,9 @@ export default {
           disabled: !this.listMenu.itemMenuControl.download,
         },
         {
-          name: this.$t('view.list.list_copy_name'),
-          action: 'copyName',
-          disabled: !this.listMenu.itemMenuControl.copyName,
-        },
-        {
-          name: this.$t('view.list.list_source_detail'),
-          action: 'sourceDetail',
-          disabled: !this.listMenu.itemMenuControl.sourceDetail,
+          name: this.$t('view.list.list_play_later'),
+          action: 'playLater',
+          disabled: !this.listMenu.itemMenuControl.playLater,
         },
         {
           name: this.$t('view.list.list_add_to'),
@@ -228,6 +238,26 @@ export default {
           name: this.$t('view.list.list_move_to'),
           action: 'moveTo',
           disabled: !this.listMenu.itemMenuControl.moveTo,
+        },
+        {
+          name: this.$t('view.list.list_sort'),
+          action: 'sort',
+          disabled: !this.listMenu.itemMenuControl.sort,
+        },
+        {
+          name: this.$t('view.list.list_copy_name'),
+          action: 'copyName',
+          disabled: !this.listMenu.itemMenuControl.copyName,
+        },
+        {
+          name: this.$t('view.list.list_source_detail'),
+          action: 'sourceDetail',
+          disabled: !this.listMenu.itemMenuControl.sourceDetail,
+        },
+        {
+          name: this.$t('view.list.list_search'),
+          action: 'search',
+          disabled: !this.listMenu.itemMenuControl.search,
         },
         {
           name: this.$t('view.list.list_remove'),
@@ -270,6 +300,12 @@ export default {
         this.handleDelayShow()
       })
     })
+    this.isShowDownload = false
+    this.isShowDownloadMultiple = false
+    this.isShowListAdd = false
+    this.isShowListAddMultiple = false
+    this.isShowListSortModal = false
+    this.listMenu.isShowItemMenu = false
     next()
   },
   // mounted() {
@@ -309,10 +345,26 @@ export default {
   },
   methods: {
     ...mapMutations(['setPrevSelectListId']),
-    ...mapMutations('list', ['listRemove', 'listRemoveMultiple', 'setUserListName', 'createUserList', 'moveupUserList', 'movedownUserList', 'removeUserList', 'setListScroll']),
+    ...mapMutations('list', [
+      'listRemove',
+      'listRemoveMultiple',
+      'setUserListName',
+      'createUserList',
+      'moveupUserList',
+      'movedownUserList',
+      'removeUserList',
+      'setListScroll',
+      'setList',
+      'sortList',
+    ]),
+    ...mapActions('songList', ['getListDetailAll']),
+    ...mapActions('leaderboard', {
+      getBoardListAll: 'getListAll',
+    }),
     ...mapActions('download', ['createDownload', 'createDownloadMultiple']),
     ...mapMutations('player', {
       setPlayList: 'setList',
+      setTempPlayList: 'setTempPlayList',
     }),
     listenEvent() {
       window.eventHub.$on('key_shift_down', this.handle_key_shift_down)
@@ -520,7 +572,7 @@ export default {
       }
     },
     testPlay(index) {
-      if (!this.assertApiSupport(this.list[index].source)) return
+      // if (!this.assertApiSupport(this.list[index].source)) return
       this.setPlayList({ list: this.listData, index })
     },
     handleRemove(index) {
@@ -530,7 +582,7 @@ export default {
       switch (info.action) {
         case 'download': {
           const minfo = this.list[info.index]
-          if (!this.assertApiSupport(minfo.source)) return
+          // if (!this.assertApiSupport(minfo.source)) return
           this.musicInfo = minfo
           this.$nextTick(() => {
             this.isShowDownload = true
@@ -617,6 +669,7 @@ export default {
       return assertApiSupport(source)
     },
     handleContainerClick(event) {
+      if (!this.$refs.dom_lists) return
       let isFocusList = event.target == this.$refs.dom_lists || this.$refs.dom_lists.contains(event.target)
       this.focusTarget = isFocusList ? 'list' : 'listDetail'
     },
@@ -668,6 +721,8 @@ export default {
       }).catch(_ => _)
     },
     handleListsItemRigthClick(event, index) {
+      const source = this.userList[index].source
+      this.listsData.itemMenuControl.sync = !!source && !!musicSdk[source].songList
       this.listsData.itemMenuControl.moveup = index > 0
       this.listsData.itemMenuControl.movedown = index < this.userList.length - 1
       this.listsData.rightClickItemIndex = index
@@ -680,8 +735,9 @@ export default {
     },
     handleListItemRigthClick(event, index) {
       this.listMenu.itemMenuControl.sourceDetail = !!musicSdk[this.list[index].source].getMusicDetailPageUrl
-      this.listMenu.itemMenuControl.play =
-        this.listMenu.itemMenuControl.download =
+      // this.listMenu.itemMenuControl.play =
+      //   this.listMenu.itemMenuControl.playLater =
+      this.listMenu.itemMenuControl.download =
         this.assertApiSupport(this.list[index].source)
       let dom_selected = this.$refs.dom_tbody.querySelector('tr.selected')
       if (dom_selected) dom_selected.classList.remove('selected')
@@ -714,6 +770,9 @@ export default {
             dom.querySelector('input').focus()
           })
           break
+        case 'sync':
+          this.handleSyncSourceList(index)
+          break
         case 'moveup':
           this.moveupUserList(index)
           break
@@ -740,6 +799,14 @@ export default {
       switch (action && action.action) {
         case 'play':
           this.testPlay(index)
+          break
+        case 'playLater':
+          if (this.selectdListDetailData.length) {
+            this.setTempPlayList(this.selectdListDetailData.map(s => ({ listId: this.listId, musicInfo: s })))
+            this.removeAllSelectListDetail()
+          } else {
+            this.setTempPlayList([{ listId: this.listId, musicInfo: this.list[index] }])
+          }
           break
         case 'copyName':
           minfo = this.list[index]
@@ -783,6 +850,24 @@ export default {
             })
           }
           break
+        case 'sort':
+          this.isShowListSortModal = true
+          this.musicInfo = this.list[index]
+          // if (this.selectdListDetailData.length) {
+          //   this.isShowDownloadMultiple = true
+          // } else {
+          //   minfo = this.list[index]
+          //   if (!this.assertApiSupport(minfo.source)) return
+          //   this.musicInfo = minfo
+          //   this.$nextTick(() => {
+          //     this.isShowDownload = true
+          //   })
+          // }
+          break
+        case 'search':
+          minfo = this.list[index]
+          this.handleSearch(minfo)
+          break
         case 'remove':
           if (this.selectdListDetailData.length) {
             this.listRemoveMultiple({ id: this.listId, list: this.selectdListDetailData })
@@ -813,6 +898,52 @@ export default {
           })
           break
       }
+    },
+    fetchList(id, source, sourceListId) {
+      if (this.fetchingListStatus[id] == null) {
+        this.$set(this.fetchingListStatus, id, true)
+      } else {
+        this.fetchingListStatus[id] = true
+      }
+
+      let promise
+      if (/board__/.test(sourceListId)) {
+        const id = sourceListId.replace(/board__/, '')
+        promise = this.getBoardListAll(id)
+      } else {
+        promise = this.getListDetailAll({ source, id: sourceListId })
+      }
+      return promise.finally(() => {
+        this.fetchingListStatus[id] = false
+      })
+    },
+    async handleSyncSourceList(index) {
+      const targetListInfo = this.userList[index]
+      const list = await this.fetchList(targetListInfo.id, targetListInfo.source, targetListInfo.sourceListId)
+      // console.log(targetListInfo.list.length, list.length)
+      this.removeAllSelectListDetail()
+      this.setList({
+        ...targetListInfo,
+        list,
+      })
+    },
+    handleSortMusicInfo(num) {
+      num = Math.min(num, this.list.length)
+      this.sortList({
+        id: this.listId,
+        sortNum: num,
+        musicInfos: this.selectdListDetailData.length ? [...this.selectdListDetailData] : [this.musicInfo],
+      })
+      this.removeAllSelectListDetail()
+      this.isShowListSortModal = false
+    },
+    handleSearch(musicInfo) {
+      this.$router.push({
+        path: 'search',
+        query: {
+          text: `${musicInfo.name} ${musicInfo.singer}`,
+        },
+      })
     },
   },
 }
@@ -880,7 +1011,7 @@ export default {
 .listsItem {
   position: relative;
   transition: .3s ease;
-  transition-property: color, background-color;
+  transition-property: color, background-color, opacity;
   background-color: transparent;
   &:hover:not(.active) {
     background-color: @color-theme_2-hover;
@@ -895,6 +1026,9 @@ export default {
   }
   &.clicked {
     background-color: @color-theme_2-hover;
+  }
+  &.fetching {
+    opacity: .5;
   }
   &.editing {
     padding: 0 10px;

@@ -13,7 +13,8 @@ const setLrcConfig = () => {
     mainSend(global.modules.lyricWindow, ipcWinLyricNames.set_lyric_config, {
       config: desktopLyric,
       languageId: global.appSetting.langId,
-      isShowLyricTransition: global.appSetting.player.isShowLyricTransition,
+      isShowLyricTranslation: global.appSetting.player.isShowLyricTranslation,
+      isPlayLxlrc: global.appSetting.player.isPlayLxlrc,
     })
     if (isLock != desktopLyric.isLock) {
       isLock = desktopLyric.isLock
@@ -48,7 +49,7 @@ const setLrcConfig = () => {
     }
   }
 }
-global.lx_event.common.on(COMMON_EVENT_NAME.config, name => {
+global.lx_event.common.on(COMMON_EVENT_NAME.configStatus, name => {
   if (WIN_LYRIC_EVENT_NAME.name === name) return
   setLrcConfig()
 })
@@ -76,5 +77,5 @@ global.lx_event.hotKey.on(HOT_KEY_EVENT_NAME.keyDown, ({ type, key }) => {
   }
   desktopLyricSetting[settingKey] = !desktopLyricSetting[settingKey]
 
-  global.lx_event.common.setAppConfig({ desktopLyric: desktopLyricSetting }, null)
+  global.lx_core.setAppConfig({ desktopLyric: desktopLyricSetting }, null)
 })

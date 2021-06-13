@@ -9,7 +9,7 @@ export default {
   total: 0,
   page: 0,
   allPage: 1,
-  musicSearch(str, page) {
+  musicSearch(str, page, limit) {
     if (searchRequest && searchRequest.cancelHttp) searchRequest.cancelHttp()
     searchRequest = httpFetch('https://music.163.com/weapi/search/get', {
       method: 'post',
@@ -20,28 +20,30 @@ export default {
       form: weapi({
         s: str,
         type: 1, // 1: 单曲, 10: 专辑, 100: 歌手, 1000: 歌单, 1002: 用户, 1004: MV, 1006: 歌词, 1009: 电台, 1014: 视频
-        limit: this.limit,
-        offset: this.limit * (page - 1),
+        limit,
+        offset: limit * (page - 1),
       }),
     })
-    return searchRequest.promise.then(({ body }) =>
-      body && body.code === 200
+    return searchRequest.promise.then(({ body }) => {
+      // console.log(body)
+      return body && body.code === 200
         ? musicDetailApi.getList(body.result.songs.map(s => s.id)).then(({ list }) => {
           this.total = body.result.songCount || 0
           this.page = page
-          this.allPage = Math.ceil(this.total / this.limit)
+          this.allPage = Math.ceil(this.total / limit)
           return {
             code: 200,
             data: {
               list,
               allPage: this.allPage,
-              limit: this.limit,
+              limit,
               total: this.total,
               source: 'wy',
             },
           }
         })
-        : body)
+        : body
+    })
   },
   getSinger(singers) {
     let arr = []
@@ -103,8 +105,8 @@ export default {
   }, */
   search(str, page = 1, { limit } = {}, retryNum = 0) {
     if (++retryNum > 3) return Promise.reject(new Error('try max num'))
-    if (limit != null) this.limit = limit
-    return this.musicSearch(str, page).then(result => {
+    if (limit == null) limit = this.limit
+    return this.musicSearch(str, page, limit).then(result => {
       // console.log(result)
       if (!result || result.code !== 200) return this.search(str, page, { limit }, retryNum)
       // let list = this.handleResult(result.result.songs || [])

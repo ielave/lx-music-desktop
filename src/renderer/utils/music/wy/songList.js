@@ -139,6 +139,7 @@ export default {
               size,
             }
           }
+        case 192000:
         case 128000:
           if (item.l) {
             size = sizeFormate(item.l.size)
@@ -161,6 +162,7 @@ export default {
         songmid: item.id,
         img: item.al.picUrl,
         lrc: null,
+        otherSource: null,
         types,
         _types,
         typeUrl: {},
